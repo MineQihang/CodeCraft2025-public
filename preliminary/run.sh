@@ -1,0 +1,1 @@
+python run.py ./interactor/interactor.exe ./data/sample_official.in ./build/code_craft.exe -r 36500 46500 56500 66500 76500
