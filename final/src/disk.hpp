@@ -12,7 +12,8 @@ class Region {
 
 class LabelRegion : public Region {
    public:
-    std::vector<Region> label_points;  // 标签对应的位置
+    std::map<int, Region> label_points;  // 标签对应的位置
+    std::map<int, Region> zero_regions;  // 0标签对应的位置
 };
 
 class Head {
@@ -29,6 +30,8 @@ class Disk {
     std::vector<int> units;    // 磁盘单元
     Head heads[HEAD_NUM + 1];  // 读写头
     int label_num;             // 标签数量
+
+    std::mt19937 gen;               // 随机数生成器
 
     virtual void init(int id_, int num_unit_, int label_num_) = 0;
     virtual double try_add_object(Object& object, std::vector<int>& units_, int head_id) = 0;

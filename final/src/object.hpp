@@ -16,8 +16,12 @@ class Object {
     bool lazy;                                  // 懒更新最小时间戳
     std::queue<int> request_queue;              // 对象的请求队列
     std::vector<int> request_list;              // 对象一轮所有的请求
+    int request_list_idx{0};
     int write_timestamp;                  // 对象的写入时间戳
-    int delete_timestamp;  // 对象的删除时间戳
+    int delete_timestamp{-1};  // 对象的删除时间戳
+    bool is_gc=false; // 是否被垃圾回收
+
+    bool is_forecast = false;  // 是否是写入时预测的对象
 
     // 操作函数
     void init(int id, int size, int label, int timestamp, bool is_known);
@@ -69,10 +73,20 @@ int Object::get_replica_id(int disk_id) {
 }
 
 int Object::get_unit_id(int replica_id, int unit_id) {
-    for (int i = 1; i <= units[replica_id].size(); i++) {
+    assert(replica_id >= 1 && replica_id <= REP_NUM);
+    for (int i = 1; i <= size; i++) {
         if (units[replica_id][i] == unit_id) {
             return i;
         }
+    }
+    std::cerr << "replica_id: " << replica_id << " unit_id: " << unit_id << std::endl;
+
+    for(int i = 1; i <= REP_NUM; i++) {
+        std::cerr << "replica: " << i << " " << std::endl;
+        for(int j = 1; j <= size; j++) {
+            std::cerr << units[i][j] << " ";
+        }
+        std::cerr << std::endl;
     }
     assert(false && "unit_id == -1");
     return -1;
@@ -81,6 +95,7 @@ int Object::get_unit_id(int replica_id, int unit_id) {
 void Object::read(int disk_id, int disk_unit_id, int timestamp) {
     auto replica_id = get_replica_id(disk_id);
     auto unit_id = get_unit_id(replica_id, disk_unit_id);
+    assert(unit_id != -1 && "unit_id == -1");
     lazy = (lazy || unit_last_read_timestamp[unit_id] == last_read_timestamp);
     unit_last_read_timestamp[unit_id] = timestamp;
 }

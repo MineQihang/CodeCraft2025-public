@@ -7,6 +7,11 @@ void Controller::do_object_delete_round1(Object& object) {
         disk.delete_units(object.units[i]);
     }
     object.delete_(current_timestamp);
+    if(object.is_known){
+        label_left[current_timestamp/STAT_FREQ_ROUND1 + 1][object.label] -= object.size;
+        freq_delete_round1[current_timestamp/STAT_FREQ_ROUND1 + 1][object.label] += 1.0 * object.size ;
+    }
+    need_gc_obj[object.label].erase(object.id);
 }
 
 void Controller::do_object_write_round1(Object& object, int prv_disk = -1) {
@@ -15,6 +20,39 @@ void Controller::do_object_write_round1(Object& object, int prv_disk = -1) {
     int min_value_disk;
     int min_value_head;
     std::vector<int> min_value_units;
+
+    std::vector<int> label_list; 
+    std::vector<int> label_list_consider; // 需要考虑的label
+    // if(object.label == 0 && current_slice>=10) {
+    //     int slice = std::max(0,current_timestamp/STAT_FREQ_ROUND1);
+    //     for (int i = 1; i <= num_object_label; i++) {
+    //         if(freq_write_round1[slice][i] !=0 ) {
+    //             label_list_consider.push_back(i);
+    //         }
+    //     }
+    //     while(!label_list_consider.empty()) {
+    //         int total_weight = 0;
+    //         for (const auto& e : label_list_consider) 
+    //             total_weight += freq_write_round1[slice][e];
+            
+    //         std::uniform_int_distribution<> dis(0, total_weight - 1);
+    //         int rand_val = dis(gen);
+            
+    //         int accumulate = 0;
+    //         auto selected = label_list_consider.begin();
+    //         for (auto it = label_list_consider.begin(); it != label_list_consider.end(); ++it) {
+    //             accumulate += freq_write_round1[slice][*it];
+    //             if (accumulate > rand_val) {
+    //                 selected = it;
+    //                 break;
+    //             }
+    //         }
+            
+    //         label_list.push_back(*selected);
+    //         label_list_consider.erase(selected);
+    //     }
+        
+    // }
     for (int i = 1; i <= num_disk; i++) {
         for (int j = 1; j <= HEAD_NUM; j++) {
             if (prv_disk != -1 && i != prv_disk) {
@@ -22,7 +60,12 @@ void Controller::do_object_write_round1(Object& object, int prv_disk = -1) {
             }
             auto& disk = disks1[i];
             std::vector<int> units;
-            double value = disk.try_add_object(object, units, j);
+            double value = 0;
+            if(object.label == 0) {
+                value = disk.try_add_object_zero(object, units, j, label_list);
+            } else {
+                value = disk.try_add_object(object, units, j);
+            }
             if (value < min_value) {
                 min_value = value;
                 min_value_disk = i;
@@ -38,22 +81,87 @@ void Controller::do_object_write_round1(Object& object, int prv_disk = -1) {
         disk.add_object(object, min_value_units, i, min_value_head, start_point);
         if (i == 1) stat_obj_num[min_value_disk][min_value_head] += 1;
     }
+    if(object.is_known){
+        label_left[current_timestamp/STAT_FREQ_ROUND1 + 1][object.label] += object.size;
+        label_size[object.label][object.size] += 1;
+        freq_write_round1[current_timestamp/STAT_FREQ_ROUND1 + 1][object.label] += 1;
+    }
 }
 
 void Controller::do_request_add_round1(Request& request, Object& object) {
+#ifndef DEBUG_ROUND_2
+    std::vector<int> label_permutation(num_object_label);
+    std::iota(label_permutation.begin(), label_permutation.end(), 1);
+
+    int slice = std::max(0,(current_timestamp - 1)/STAT_FREQ_ROUND1);
+    std::sort(label_permutation.begin(), label_permutation.end(), [&](int a, int b) {
+        return 1.0 * freq_read_round1[slice][a] < 1.0 * freq_read_round1[slice][b];
+    });
+    double value = std::accumulate(freq_read_round1[slice].begin(), freq_read_round1[slice].end(), 0.0);
+    double temp_value = 0;
+    // for(int i = 0; i < 8; i++){
+    //     temp_value += freq_read_round1[slice][label_permutation[i]];
+    // }
+    // std::cerr << "ratio: " << temp_value/value << std::endl;
+
+    
+    std::vector<int> not_consider_label;
+    for (int i = 0; i < 16; i++) {
+        temp_value += freq_read_round1[slice][label_permutation[i]];
+        if(temp_value/value > 0.1){
+            break;
+        }
+        not_consider_label.push_back(label_permutation[i]);
+    }
+
+    bool is_busy = current_slice >= 8 && current_slice <= 48 && std::count(not_consider_label.begin(), not_consider_label.end(), object.label) > 0;
+
+    
+    // bool is_busy = false;
+    // if(current_slice >= 8 && current_slice <= 45 && object.label != 0){
+    //     int read = freq_read_round1[(current_timestamp - 1)/STAT_FREQ_ROUND1][object.label];
+    //     int left = label_left[(current_timestamp - 1)/STAT_FREQ_ROUND1][object.label];
+    //     auto head_id = object.units[1][1] > disks1[object.replica[1]].regions[1][2].start_point ? 2 : 1;
+    //     auto disk_id = object.replica[1];
+    //     auto& srs = stat_read_speed[disk_id][head_id];
+    //     int read_speed = srs.size() >= 5 ? (srs[srs.size() - 1] - srs[srs.size() - 5]) / 4 : 0;
+
+    //     is_busy = 1.0 * read / (read_speed + 1) < BUSY_SCORE;
+    //     // std::cerr << 1.0 * read / (read_speed + 1) << std::endl;
+    // }
+
+    if(object.label == 0 && current_slice >= 10 || is_busy){
+#endif
+        request.is_done = true;
+        request.object_id = object.id;
+        request.start_timestamp = current_timestamp;
+        object.request_list.push_back(current_timestamp);
+        busy_requests.push_back(request.id);
+        return;
+#ifndef DEBUG_ROUND_2
+    }
+
     request.object_id = object.id;
     request.start_timestamp = current_timestamp;
     request.is_done = false;
     object.request_queue.push(request.id);
+    object.request_list.push_back(current_timestamp);
     delete_queue.push(request.id);
+#endif
 }
 
-void Controller::do_disk_read_round1(Disk& disk, int head_id, std::stringstream& action_ss) {
+void Controller::do_disk_read_round1(DiskRound1& disk, int head_id, std::stringstream& action_ss) {
     auto& disk_unit = disk.units;
     auto& disk_point = disk.heads[head_id].point;
     auto& disk_last_op = disk.heads[head_id].last_op;
     auto& disk_last_token = disk.heads[head_id].last_token;
-
+#ifdef DEBUG_ROUND_2
+    action_ss << "j " << 1 << "\n";
+    disk_point = 1;
+    disk_last_op = 'j';
+    disk_last_token = FIRST_READ_TOKEN;
+    return;
+#endif
     // 判断是不是该跳转了
     int step = disk.get_next_read_step(head_id, objects, 0);
     if (step >= max_num_token && disk_point + step <= disks1[disk.id].regions[1][head_id].end_point) {
@@ -282,12 +390,13 @@ void Controller::write_action_round1() {
         int id, size, label;
         bool is_known = true;
         scanf("%d%d%d", &id, &size, &label);
+        write_datas[current_timestamp][i] = std::make_tuple(id, size, label);
         if (label == 0) {
-            label = label_dis(gen);
+            // label = label_dis(gen);
             need_calibrate_obj.insert(id);
             is_known = false;
+            stat_unknown_num ++;
         }
-        write_datas[current_timestamp][i] = std::make_tuple(id, size, label);
         auto& object = objects[id];
         object.init(id, size, label, current_timestamp, is_known);
         write_ids[label].push_back(id);
@@ -296,7 +405,7 @@ void Controller::write_action_round1() {
         }
     }
     // std::shuffle(write_ids.begin(), write_ids.end(), std::default_random_engine(42));
-    for (int i = 1; i <= num_object_label; i++) {
+    for (int i = 0; i <= num_object_label; i++) {
         int prv_disk = -1;
         for (auto& write_id : write_ids[i]) {
             auto& object = objects[write_id];
@@ -334,12 +443,12 @@ void Controller::read_action_round1() {
         if (object.is_known) {
             label_read_num[object.label] += 1;
             label_object[object.label].insert(object.id);
-        } else {
-            object.request_list.push_back(current_timestamp);
+            stat_label_read_num_slice[current_timestamp/STAT_FREQ_ROUND1 + 1][object.label] += 1;
         }
     }
     for (int i = 1; i <= num_object_label; i++) {
         stat_label_read_num[current_timestamp][i] = label_object[i].empty() ? 0 : 1.0 * label_read_num[i] / stat_label_num[i];
+        freq_read_round1[current_timestamp/STAT_FREQ_ROUND1 + 1][i] += stat_label_read_num[current_timestamp][i];
     }
 
     std::vector<int> success_requests;
@@ -418,9 +527,30 @@ void Controller::gc_action_round1() {
     scanf("%*s %*s");
     printf("GARBAGE COLLECTION\n");
     std::vector<int> label_permutation(num_object_label);
+    std::map<int,int> forecast_map;
+    for(auto& [label, obj_list]:need_gc_obj){
+        for(auto& obj_id: obj_list){
+            auto& object = objects[obj_id];
+            if(object.is_known){
+                forecast_map[label] ++;
+            }
+        }
+    }
+
     std::iota(label_permutation.begin(), label_permutation.end(), 1);
+    int slice = std::max(0,(current_timestamp - 1)/STAT_FREQ_ROUND1);
+    std::sort(label_permutation.begin(), label_permutation.end(), [&](int a, int b) {
+        return stat_label_read_num_slice[slice][a] > stat_label_read_num_slice[slice][b];
+        // return forecast_map[a] > forecast_map[b];
+    });
+    // for(auto & label: label_permutation) {
+    //     std::cerr << label << " "<< stat_label_read_num_slice[current_timestamp/STAT_FREQ_ROUND1][label] << std::endl;
+    // }
+    // std::cerr << std::endl;
+    // std::shuffle(label_permutation.begin(), label_permutation.end(), std::default_random_engine(42));
     for (int i = 1; i <= num_disk; i++) {
         std::vector<std::pair<int, int>> swap_ops;
+        // disks1[i].do_gc_round1(swap_ops, objects, max_swap_num, label_permutation, need_gc_obj);
         disks1[i].do_gc(swap_ops, objects, max_swap_num, label_permutation);
         printf("%ld\n", swap_ops.size());
         for (auto& swap_op : swap_ops) {
@@ -437,7 +567,8 @@ void Controller::calibrate(bool check_read_size = true) {
         auto& object = objects[obj_id];
         assert(object.is_known == false && "Object is known");
         int read_size = object.request_list.size();
-        if (check_read_size && read_size < 50) {
+        std::set<int> read_set(object.request_list.begin(), object.request_list.end());
+        if (check_read_size && read_set.size() < 50 && !object.is_delete) {
             continue;
         }
         double min_loss = 0x3f3f3f3f;
@@ -446,7 +577,8 @@ void Controller::calibrate(bool check_read_size = true) {
             int j = 0;
             double freq_read_label = 0;
             double freq_read_obj = 0;
-            for (int t = object.write_timestamp, k = 1; t <= current_timestamp; t++, k++) {
+            int end_timestamp = object.is_delete ? object.delete_timestamp : current_timestamp;
+            for (int t = object.write_timestamp, k = 1; t <= end_timestamp; t++, k++) {
                 int cnt = 0;
                 while (j < read_size && object.request_list[j] == t) {
                     cnt++;
@@ -455,12 +587,12 @@ void Controller::calibrate(bool check_read_size = true) {
                 freq_read_label += stat_label_read_num[t][i];
                 freq_read_obj += cnt;
                 if (k % FREQ == 0) {
-                    loss += (freq_read_label - freq_read_obj) * (freq_read_label - freq_read_obj);
+                    loss += std::pow(freq_read_label - freq_read_obj, 2);
                     freq_read_label = 0;
                     freq_read_obj = 0;
                 }
             }
-            loss += (freq_read_label - freq_read_obj) * (freq_read_label - freq_read_obj);
+            loss += std::pow(freq_read_label - freq_read_obj, 2);
             if (loss < min_loss) {
                 min_loss = loss;
                 object.label = i;
@@ -475,8 +607,26 @@ void Controller::calibrate(bool check_read_size = true) {
         // object.is_known = true;
         object_label[obj_id] = object.label;
         need_calibrate_obj.erase(obj_id);
+        if(object.is_known) {
+            need_gc_obj[object.label].insert(obj_id);
+        }
+
     }
+#ifdef DEBUG
     test_accuracy();
+#endif
+}
+
+void Controller::stat(){
+    std::ofstream file("data/stat.txt");
+    for(int i = 1; i <= MAX_TIME_SLICING/STAT_FREQ_ROUND1; i++) {
+        for(int j = 1; j <= num_object_label; j++) {
+            file << freq_read_round1[i][j] << " ";
+        }
+        file << std::endl;
+    }
+    file << std::endl;
+    file.close();
 }
 
 void Controller::test_accuracy() {
@@ -511,5 +661,5 @@ void Controller::test_accuracy() {
     }
 
     double accuracy = total > 0 ? static_cast<double>(correct) / total : 0.0;
-    std::cerr << "Calibration accuracy: " << accuracy << " (" << correct << "/" << total << ")" << std::endl;
+    std::cerr << "Calibration accuracy: " << accuracy << " (" << correct << "/" << total << ", " << stat_unknown_num << ")" << std::endl;
 }
