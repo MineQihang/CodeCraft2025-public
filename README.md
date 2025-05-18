@@ -219,6 +219,7 @@ utils.hpp      # 定义超参数和工具宏
 - 赛事首页：[https://developer.huaweicloud.com/codecraft2025](https://developer.huaweicloud.com/codecraft2025)
 - 冠军粤港澳赛区“Tom and Jerry”赛队的仓库：[sunkafei/huawei-software-challenge2025](https://github.com/sunkafei/huawei-software-challenge2025)（咖啡佬太强了，膜拜！👍）
 - 亚军京津东北赛区“0b1000100”赛队的仓库：[yulemao/huawei-code-craft2025](https://github.com/yulemao/huawei-code-craft2025)（0b哥单挑拿亚军，佩服！🙌）
+- 亚军西南赛区“别看我只是一只羊”赛队的仓库：[kkkkrs/HUAWEI_DISK_FINAL](https://github.com/kkkkrs/HUAWEI_DISK_FINAL)（给CQU学弟打call！🔥）
 - 软件开发最佳实践奖获得者京津东北赛区“Pearcat”赛队的仓库：[churuikai/craft2025_pearcat](https://github.com/churuikai/craft2025_pearcat)（代码好看，整活小能手😄）
 
 
